@@ -1,13 +1,15 @@
-import { Stack, usePathname, useRouter } from 'expo-router';
-import React, { useEffect } from 'react';
+import { Slot, usePathname, useRouter } from 'expo-router';
+import React, { useEffect, useRef } from 'react';
 import { AppProvider, useApp } from '../src/context/AppContext';
 import { requestNotificationPermissions, setNotificationHandlers } from '../src/notifications';
 import * as Notifications from 'expo-notifications';
+import { OnboardingScreen } from '../src/screens/OnboardingScreen';
 
 const Gate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useApp();
   const router = useRouter();
   const pathname = usePathname();
+  const pendingNavRef = useRef<string | null>(null);
 
   useEffect(() => {
     setNotificationHandlers();
@@ -18,6 +20,7 @@ const Gate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const itemId = (response.notification.request.content.data as any)?.itemId as string | undefined;
       if (itemId) {
+        // Avoid navigating before the root layout mounts; defer until next tick
         router.push(`/item/${itemId}`);
       }
     });
@@ -25,10 +28,17 @@ const Gate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   }, [router]);
 
   useEffect(() => {
-    if (!user && pathname !== '/onboarding') {
-      router.replace('/onboarding');
-    }
-  }, [user, pathname, router]);
+    const pending = pendingNavRef.current;
+    if (!pending) return;
+    pendingNavRef.current = null;
+    router.push(`/item/${pending}`);
+  }, [router]);
+
+  if (!user && pathname !== '/onboarding') {
+    // Avoid programmatic navigation from RootLayout (it can run before mount).
+    // Instead, render onboarding inline until the user is configured.
+    return <OnboardingScreen onDone={() => {}} />;
+  }
 
   return <>{children}</>;
 };
@@ -37,11 +47,7 @@ export default function RootLayout() {
   return (
     <AppProvider>
       <Gate>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="onboarding" options={{ title: 'Welcome' }} />
-          <Stack.Screen name="item/[id]" options={{ title: 'Evaluate Item' }} />
-        </Stack>
+        <Slot />
       </Gate>
     </AppProvider>
   );
